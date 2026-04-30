@@ -26,6 +26,9 @@ class MorlNgspiceEnv(gymnasium.Env):
 
     ACT_LOW = -1.0
     ACT_HIGH = 1.0
+    REWARD_FAIL_THRESHOLD = -6.0
+    REWARD_FAIL_PENALTY = -10.0
+    ACTION_SCALE_K = 0.5
 
     def __init__(self, env_config=None):
         if env_config is None:
@@ -66,6 +69,7 @@ class MorlNgspiceEnv(gymnasium.Env):
         # --- settings ---
         self.episode_len = env_config.get("episode_len", 30)
         self.corner_sim = env_config.get("corner_sim", False)
+        self.action_scale = 2.0 / (self.episode_len * self.ACTION_SCALE_K)
         self.prec_params = yaml_data.get("prec_params", [9] * self.num_params)
         self.yaml_init_params = yaml_data.get("init_params")
 
@@ -130,8 +134,15 @@ class MorlNgspiceEnv(gymnasium.Env):
         )
 
         self.cur_step += 1
-        terminated = False
+
+        fail_dims = vector_reward < self.REWARD_FAIL_THRESHOLD
+        terminated = bool(np.any(fail_dims))
         truncated = self.cur_step >= self.episode_len
+
+        if terminated:
+            fail_indices = np.where(fail_dims)[0]
+            for i in fail_indices:
+                vector_reward[i] += self.REWARD_FAIL_PENALTY
 
         obs = self._build_obs(cur_specs_raw)
 
@@ -140,7 +151,7 @@ class MorlNgspiceEnv(gymnasium.Env):
               f"obs_spec={obs[:self.num_specs].round(3)} "
               f"obs_params={obs[self.num_specs:].round(3)} "
               f"raw_specs={cur_specs_raw.round(1)} "
-              f"{'corner' if corner_done else 'TT'}")
+              f"{'TERM' if terminated else 'corner' if corner_done else 'TT'}")
 
         info = {
             "cur_specs": cur_specs_raw,
@@ -209,7 +220,7 @@ class MorlNgspiceEnv(gymnasium.Env):
 
     def _update_params(self, action):
         action = np.asarray(action, dtype=np.float64).flatten()
-        new = self.cur_params + action
+        new = self.cur_params + action * self.action_scale
         return np.clip(new, self.ACT_LOW, self.ACT_HIGH)
 
     def _translate_params(self, norm_params):

@@ -121,6 +121,7 @@ def main(**kwargs):
         timesteps_per_iter=cfg["timesteps_per_iter"],
         eval_freq=1000,
         eval_mo_freq=cfg["timesteps_per_iter"],
+        num_eval_episodes_for_front=1,
     )
 
 
