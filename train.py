@@ -3,11 +3,14 @@
 Uses GPI-PD (Continuous Action) from morl-baselines with a custom ngspice env.
 """
 
+import logging
 import os
 import sys
 
 import click
 import numpy as np
+
+from logging_setup import get_run_dir, setup_logging
 
 sys.path.append(
     os.path.abspath(os.path.join(os.path.dirname(__file__), os.path.pardir, "morl-baselines"))
@@ -54,9 +57,21 @@ def make_env(yaml_path, corner_sim=False, episode_len=30):
 @click.option("--wandb_entity", default=None)
 @click.option("--run_name", default=None)
 @click.option("--wandb_mode", default="online", type=click.Choice(["online", "offline", "disabled"]))
+@click.option("--log_dir", default="./logs", help="Base directory for log output.")
+@click.option("--verbose/--quiet", default=False, help="Show DEBUG-level messages on console.")
 def main(**kwargs):
     cfg = {k: v for k, v in kwargs.items()}
     yaml_path = cfg["yaml_path"]
+
+    # --- logging setup ---
+    run_dir = get_run_dir(cfg["log_dir"], cfg["env_name"])
+    console_level = "DEBUG" if cfg.get("verbose") else "INFO"
+    _log_handles = setup_logging(run_dir, cfg, console_level=console_level)
+    logger = logging.getLogger("morl_ckt.train")
+
+    logger.info("Training started",
+                extra={"json_event": {"event": "training_start", "config": cfg}})
+
     reward_dim = _get_reward_dim(yaml_path)
 
     wandb_mode = cfg.get("wandb_mode", "online")
@@ -79,18 +94,21 @@ def main(**kwargs):
     train_env.action_space.seed(seed)
     np.random.seed(seed)
 
-    print(f"=== MORL Circuit Sizing ===")
-    print(f"YAML: {yaml_path}")
-    print(f"Reward dim: {reward_dim}, Params: {train_env.num_params}, "
-          f"Obs dim: {train_env.observation_space.shape[0]}")
-    print(f"Global goal: {train_env.global_goal}")
-    print(f"Specs: {train_env.specs_id}")
-    print(f"Total timesteps: {cfg['total_timesteps']}, "
-          f"per iter: {cfg['timesteps_per_iter']}")
-    print(f"Buffer: {cfg['buffer_size']}, Batch: {cfg['batch_size']}, "
-          f"Learning starts: {cfg['learning_starts']}")
-    print(f"Corner sim: {cfg['corner_sim']}, GPI: {cfg['use_gpi']}, Dyna: {cfg['dyna']}")
-    print(f"===========================\n")
+    logger.info("=== MORL Circuit Sizing ===")
+    logger.info("YAML: %s", yaml_path)
+    logger.info("Reward dim: %d, Params: %d, Obs dim: %d",
+                reward_dim, train_env.num_params,
+                train_env.observation_space.shape[0])
+    logger.info("Global goal: %s", train_env.global_goal)
+    logger.info("Specs: %s", train_env.specs_id)
+    logger.info("Total timesteps: %d, per iter: %d",
+                cfg["total_timesteps"], cfg["timesteps_per_iter"])
+    logger.info("Buffer: %d, Batch: %d, Learning starts: %d",
+                cfg["buffer_size"], cfg["batch_size"], cfg["learning_starts"])
+    logger.info("Corner sim: %s, GPI: %s, Dyna: %s",
+                cfg["corner_sim"], cfg["use_gpi"], cfg["dyna"])
+    logger.info("Log dir: %s", run_dir)
+    logger.info("===========================")
 
     experiment_name = cfg.get("run_name") or f"GPI-PD-{cfg['env_name']}"
     agent = GPIPDContinuousAction(

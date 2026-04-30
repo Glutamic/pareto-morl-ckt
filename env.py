@@ -1,5 +1,6 @@
 """MORL environment for analog circuit parameter optimization."""
 
+import logging
 import os
 from collections import OrderedDict
 from types import SimpleNamespace
@@ -10,6 +11,8 @@ from gymnasium import spaces
 
 from eval_engines.ngspice.CircuitClass import CircuitClass
 from utils import compute_vector_reward, extract_global_goal, load_yaml, lookup
+
+logger = logging.getLogger("morl_ckt.env")
 
 
 class MorlNgspiceEnv(gymnasium.Env):
@@ -120,10 +123,9 @@ class MorlNgspiceEnv(gymnasium.Env):
             "params": self._translate_params(self.cur_params),
         }
 
-        print(f"[ep {self.episode_count} reset] "
-              f"specs={cur_specs_raw.round(1)} "
-              f"reward={vector_reward.round(3)} "
-              f"params_norm={self.cur_params.round(3)}")
+        logger.debug("[ep %d reset] specs=%s reward=%s params_norm=%s",
+                     self.episode_count, cur_specs_raw.round(1),
+                     vector_reward.round(3), self.cur_params.round(3))
         return obs, info
 
     def step(self, action):
@@ -146,12 +148,13 @@ class MorlNgspiceEnv(gymnasium.Env):
 
         obs = self._build_obs(cur_specs_raw)
 
-        print(f"[ep {self.episode_count} step {self.cur_step}] "
-              f"reward={vector_reward.round(3)} "
-              f"obs_spec={obs[:self.num_specs].round(3)} "
-              f"obs_params={obs[self.num_specs:].round(3)} "
-              f"raw_specs={cur_specs_raw.round(1)} "
-              f"{'TERM' if terminated else 'corner' if corner_done else 'TT'}")
+        logger.debug("[ep %d step %d] reward=%s obs_spec=%s obs_params=%s raw_specs=%s %s",
+                     self.episode_count, self.cur_step,
+                     vector_reward.round(3),
+                     obs[:self.num_specs].round(3),
+                     obs[self.num_specs:].round(3),
+                     cur_specs_raw.round(1),
+                     'TERM' if terminated else 'corner' if corner_done else 'TT')
 
         info = {
             "cur_specs": cur_specs_raw,

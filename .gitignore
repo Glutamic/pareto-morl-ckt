@@ -138,3 +138,6 @@ videos/
 
 # vscode
 .vscode/
+
+# log
+logs/
