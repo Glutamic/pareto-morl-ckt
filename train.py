@@ -19,12 +19,10 @@ from morl_baselines.multi_policy.gpi_pd.gpi_pd_continuous_action import (
 from env import MorlNgspiceEnv
 
 
-def make_env(yaml_path, lookup_style="normd", corner_sim=False, episode_len=30):
-    """Create a MorlNgspiceEnv instance."""
+def make_env(yaml_path, corner_sim=False, episode_len=30):
     return MorlNgspiceEnv(
         env_config={
             "yaml_path": yaml_path,
-            "lookup_style": lookup_style,
             "corner_sim": corner_sim,
             "episode_len": episode_len,
         }
@@ -34,7 +32,7 @@ def make_env(yaml_path, lookup_style="normd", corner_sim=False, episode_len=30):
 @click.command()
 # --- circuit ---
 @click.option("--yaml", "yaml_path", required=True, help="Path to circuit YAML config.")
-@click.option("--env_name", default="COMP", help="Circuit name for logging (COMP/TSA/CMA/LDO).")
+@click.option("--env_name", default="COMP", help="Circuit name for logging.")
 # --- training ---
 @click.option("--total_timesteps", default=100000, help="Total training timesteps.")
 @click.option("--timesteps_per_iter", default=10000, help="Timesteps per GPI-LS iteration.")
@@ -46,49 +44,54 @@ def make_env(yaml_path, lookup_style="normd", corner_sim=False, episode_len=30):
 @click.option("--buffer_size", default=400000, help="Replay buffer size.")
 @click.option("--learning_starts", default=1000, help="Random exploration steps before training.")
 # --- env ---
-@click.option("--lookup_style", default="normd", type=click.Choice(["normd", "tanh"]))
-@click.option("--corner_sim/--no-corner_sim", default=False, help="Enable multi-corner worst-case simulation.")
+@click.option("--corner_sim/--no-corner_sim", default=False)
 @click.option("--episode_len", default=30, help="Max steps per episode.")
 # --- GPI-PD ---
-@click.option("--dyna/--no-dyna", default=False, help="Enable Dyna-style dynamics model.")
-@click.option("--use_gpi/--no-use_gpi", default=True, help="Use GPI for action selection at evaluation.")
+@click.option("--dyna/--no-dyna", default=False)
+@click.option("--use_gpi/--no-use_gpi", default=True)
 # --- logging ---
-@click.option("--wandb_project", default="MORL-Circuit-Sizing", help="W&B project name.")
-@click.option("--wandb_entity", default=None, help="W&B entity.")
-@click.option("--run_name", default=None, help="W&B run name.")
-@click.option("--wandb_mode", default="online", type=click.Choice(["online", "offline", "disabled"]), help="W&B mode.")
+@click.option("--wandb_project", default="MORL-Circuit-Sizing")
+@click.option("--wandb_entity", default=None)
+@click.option("--run_name", default=None)
+@click.option("--wandb_mode", default="online", type=click.Choice(["online", "offline", "disabled"]))
 def main(**kwargs):
     cfg = {k: v for k, v in kwargs.items()}
     yaml_path = cfg["yaml_path"]
     reward_dim = _get_reward_dim(yaml_path)
 
-    # --- wandb mode ---
     wandb_mode = cfg.get("wandb_mode", "online")
     if wandb_mode != "online":
         os.environ["WANDB_MODE"] = wandb_mode
     use_wandb = wandb_mode != "disabled"
 
-    # --- create envs ---
     train_env = make_env(
         yaml_path,
-        lookup_style=cfg["lookup_style"],
         corner_sim=cfg["corner_sim"],
         episode_len=cfg["episode_len"],
     )
-
     eval_env = make_env(
         yaml_path,
-        lookup_style=cfg["lookup_style"],
         corner_sim=cfg["corner_sim"],
         episode_len=cfg["episode_len"],
     )
 
-    # --- seed ---
     seed = cfg["seed"]
     train_env.action_space.seed(seed)
     np.random.seed(seed)
 
-    # --- agent ---
+    print(f"=== MORL Circuit Sizing ===")
+    print(f"YAML: {yaml_path}")
+    print(f"Reward dim: {reward_dim}, Params: {train_env.num_params}, "
+          f"Obs dim: {train_env.observation_space.shape[0]}")
+    print(f"Global goal: {train_env.global_goal}")
+    print(f"Specs: {train_env.specs_id}")
+    print(f"Total timesteps: {cfg['total_timesteps']}, "
+          f"per iter: {cfg['timesteps_per_iter']}")
+    print(f"Buffer: {cfg['buffer_size']}, Batch: {cfg['batch_size']}, "
+          f"Learning starts: {cfg['learning_starts']}")
+    print(f"Corner sim: {cfg['corner_sim']}, GPI: {cfg['use_gpi']}, Dyna: {cfg['dyna']}")
+    print(f"===========================\n")
+
     experiment_name = cfg.get("run_name") or f"GPI-PD-{cfg['env_name']}"
     agent = GPIPDContinuousAction(
         env=train_env,
@@ -107,7 +110,7 @@ def main(**kwargs):
         seed=seed,
     )
 
-    ref_point = np.full(reward_dim, -2.0)
+    ref_point = np.full(reward_dim, -50.0)
 
     agent.train(
         total_timesteps=cfg["total_timesteps"],
@@ -122,7 +125,6 @@ def main(**kwargs):
 
 
 def _get_reward_dim(yaml_path):
-    """Quickly read reward dimension from a YAML config."""
     from utils import extract_global_goal, load_yaml
     yaml_data = load_yaml(yaml_path)
     _, specs_id = extract_global_goal(yaml_data["target_specs"])

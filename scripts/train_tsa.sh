@@ -13,7 +13,7 @@ python train.py \
   --seed 42 \
   --lr 3e-4 \
   --gamma 0.99 \
-  --lookup_style normd \
+
   --no-corner_sim \
   --episode_len 30 \
   --wandb_project "MORL-Circuit-Sizing" \

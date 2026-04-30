@@ -20,11 +20,10 @@ def test_env_creation():
     env = MorlNgspiceEnv(
         env_config={
             "yaml_path": YAML_PATH,
-            "lookup_style": "normd",
             "corner_sim": False,
         }
     )
-    assert env.observation_space.shape == (10,), f"obs shape: {env.observation_space.shape}"
+    assert env.observation_space.shape == (8,), f"obs shape: {env.observation_space.shape}"
     assert env.action_space.shape == (6,), f"action shape: {env.action_space.shape}"
     assert env.reward_space.shape == (2,), f"reward shape: {env.reward_space.shape}"
     assert env.unwrapped.reward_space.shape == (2,)
@@ -36,12 +35,11 @@ def test_reset():
     env = MorlNgspiceEnv(
         env_config={
             "yaml_path": YAML_PATH,
-            "lookup_style": "normd",
             "corner_sim": False,
         }
     )
     obs, info = env.reset()
-    assert obs.shape == (10,), f"obs shape: {obs.shape}"
+    assert obs.shape == (8,), f"obs shape: {obs.shape}"
     assert "cur_specs" in info
     assert "params" in info
     print("  test_reset PASSED")
@@ -51,7 +49,6 @@ def test_step():
     env = MorlNgspiceEnv(
         env_config={
             "yaml_path": YAML_PATH,
-            "lookup_style": "normd",
             "corner_sim": False,
         }
     )
@@ -68,7 +65,6 @@ def test_truncation():
     env = MorlNgspiceEnv(
         env_config={
             "yaml_path": YAML_PATH,
-            "lookup_style": "normd",
             "corner_sim": False,
             "episode_len": 3,
         }

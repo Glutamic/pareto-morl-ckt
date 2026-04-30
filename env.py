@@ -16,12 +16,12 @@ class MorlNgspiceEnv(gymnasium.Env):
     """Multi-objective RL env for ngspice-based circuit sizing.
 
     Action space: continuous Box(low=-1, high=1) — normalized parameter deltas.
-    Observation: [cur_spec_norm, global_goal_norm, cur_params] — flat Box.
-    Reward: vector of per-spec normalized deltas (positive = satisfies goal).
+    Observation: [cur_spec_norm(N), cur_params(M)] — flat Box.
+      - cur_spec_norm: lookup(cur_specs, global_goal), max-specs sign-flipped
+      - cur_params: normalized in [-1, 1]
+    Reward: vector of per-spec tanh-normalized deltas (positive = goal met).
 
-    Two simulation modes:
-      - TT-only (default): only simulate the typical-typical corner.
-      - Corner worst-case: simulate all PVT corners and take worst per spec.
+    Both observation and reward use global_goal as the normalization reference.
     """
 
     ACT_LOW = -1.0
@@ -32,13 +32,11 @@ class MorlNgspiceEnv(gymnasium.Env):
             env_config = {}
         super().__init__()
 
-        # --- paths ---
         self._root = os.getcwd()
         self.yaml_path = env_config.get("yaml_path")
         if self.yaml_path is None:
             raise ValueError("env_config must contain 'yaml_path'")
 
-        # --- load YAML ---
         yaml_data = load_yaml(self.yaml_path)
         self.yaml_data = yaml_data
 
@@ -52,61 +50,50 @@ class MorlNgspiceEnv(gymnasium.Env):
         target_specs = yaml_data["target_specs"]
         self.global_goal, self.specs_id = extract_global_goal(target_specs)
         self.num_specs = len(self.specs_id)
-        self.g_star = np.array(yaml_data["normalize"])  # normalization reference
 
-        # --- sim environments ---
+        # --- simulation environments ---
         tt_netlist = [yaml_data["dsn_netlist"][0]]
-        corner_netlists = list(yaml_data["dsn_netlist"][1:])
         all_netlists = list(yaml_data["dsn_netlist"])
         self.num_corners = len(all_netlists)
 
         self.tt_sim_env = CircuitClass(
-            yaml_path=self.yaml_path,
-            path=self._root,
-            design_netlists=tt_netlist,
-        )
-        self.corner_sim_env = CircuitClass(
-            yaml_path=self.yaml_path,
-            path=self._root,
-            design_netlists=corner_netlists,
+            yaml_path=self.yaml_path, path=self._root, design_netlists=tt_netlist,
         )
         self.full_sim_env = CircuitClass(
-            yaml_path=self.yaml_path,
-            path=self._root,
-            design_netlists=all_netlists,
+            yaml_path=self.yaml_path, path=self._root, design_netlists=all_netlists,
         )
 
         # --- settings ---
         self.episode_len = env_config.get("episode_len", 30)
-        self.lookup_style = env_config.get("lookup_style", "normd")
         self.corner_sim = env_config.get("corner_sim", False)
         self.prec_params = yaml_data.get("prec_params", [9] * self.num_params)
+        self.yaml_init_params = yaml_data.get("init_params")
 
-        # --- action space: normalized delta per param ---
+        # --- action space ---
         self.action_space = spaces.Box(
             low=np.full(self.num_params, self.ACT_LOW),
             high=np.full(self.num_params, self.ACT_HIGH),
             dtype=np.float64,
         )
 
-        # --- observation space ---
-        obs_dim = 2 * self.num_specs + self.num_params
+        # --- observation space: [cur_spec_norm(N), cur_params(M)] ---
+        obs_dim = self.num_specs + self.num_params
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float64,
         )
 
-        # --- reward space (required by MO-Gymnasium / GPIPD) ---
+        # --- reward space (required by GPIPD) ---
         self.reward_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.num_specs,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(self.num_specs,), dtype=np.float64,
         )
 
-        # --- spec id for wandb logging ---
         basename = os.path.splitext(os.path.basename(self.yaml_path))[0]
         self.spec = SimpleNamespace(id=basename)
 
         # --- state ---
-        self.cur_params = np.zeros(self.num_params, dtype=np.float64)
+        self.cur_params = self._init_params()
         self.cur_step = 0
+        self.episode_count = 0
 
     # ------------------------------------------------------------------
     # Public interface
@@ -115,95 +102,84 @@ class MorlNgspiceEnv(gymnasium.Env):
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.cur_step = 0
+        self.episode_count += 1
         self.cur_params = self._init_params()
 
         cur_specs_raw, _ = self._simulate(self.cur_params)
         vector_reward = compute_vector_reward(
-            cur_specs_raw, self.global_goal, self.specs_id, self.lookup_style
+            cur_specs_raw, self.global_goal, self.specs_id,
         )
-        global_goal_norm = self._norm_global_goal()
+        obs = self._build_obs(cur_specs_raw)
+
         info = {
             "cur_specs": cur_specs_raw,
             "params": self._translate_params(self.cur_params),
         }
-        obs = self._build_obs(
-            self._norm_specs(cur_specs_raw), global_goal_norm, self.cur_params
-        )
+
+        print(f"[ep {self.episode_count} reset] "
+              f"specs={cur_specs_raw.round(1)} "
+              f"reward={vector_reward.round(3)} "
+              f"params_norm={self.cur_params.round(3)}")
         return obs, info
 
     def step(self, action):
         self.cur_params = self._update_params(action)
         cur_specs_raw, corner_done = self._simulate(self.cur_params)
         vector_reward = compute_vector_reward(
-            cur_specs_raw, self.global_goal, self.specs_id, self.lookup_style
+            cur_specs_raw, self.global_goal, self.specs_id,
         )
-        global_goal_norm = self._norm_global_goal()
 
         self.cur_step += 1
         terminated = False
         truncated = self.cur_step >= self.episode_len
+
+        obs = self._build_obs(cur_specs_raw)
+
+        print(f"[ep {self.episode_count} step {self.cur_step}] "
+              f"reward={vector_reward.round(3)} "
+              f"obs_spec={obs[:self.num_specs].round(3)} "
+              f"obs_params={obs[self.num_specs:].round(3)} "
+              f"raw_specs={cur_specs_raw.round(1)} "
+              f"{'corner' if corner_done else 'TT'}")
 
         info = {
             "cur_specs": cur_specs_raw,
             "params": self._translate_params(self.cur_params),
             "corner_sim_done": corner_done,
         }
-        obs = self._build_obs(
-            self._norm_specs(cur_specs_raw), global_goal_norm, self.cur_params
-        )
         return obs, vector_reward, terminated, truncated, info
 
     # ------------------------------------------------------------------
-    # Internal: observation
+    # Internal: observation (uses global_goal as reference)
     # ------------------------------------------------------------------
 
-    def _build_obs(self, cur_spec_norm, global_goal_norm, cur_params):
-        return np.concatenate([cur_spec_norm, global_goal_norm, cur_params])
-
-    def _norm_specs(self, raw_specs):
-        norm = lookup(raw_specs, self.g_star, style=self.lookup_style)
-        for i, sid in enumerate(self.specs_id):
-            if sid.endswith("_max"):
-                norm[i] *= -1.0
-        return norm
-
-    def _norm_global_goal(self):
-        norm = lookup(self.global_goal, self.g_star, style=self.lookup_style)
-        for i, sid in enumerate(self.specs_id):
-            if sid.endswith("_max"):
-                norm[i] *= -1.0
-        return norm
+    def _build_obs(self, raw_specs):
+        norm = compute_vector_reward(raw_specs, self.global_goal, self.specs_id)
+        return np.concatenate([norm, self.cur_params])
 
     # ------------------------------------------------------------------
     # Internal: simulation
     # ------------------------------------------------------------------
 
     def _simulate(self, norm_params):
-        """Run ngspice simulation and return worst-case raw spec values.
-
-        TT-only mode: run only TT corner.
-        Corner mode: run all corners, take element-wise worst.
-        """
         physical = self._translate_params(norm_params)
         param_dict = OrderedDict(zip(self.params_id, physical))
 
         if self.corner_sim:
-            states, specs_list, infos = self.full_sim_env.run(param_dict)
+            _states, specs_list, _infos = self.full_sim_env.run(param_dict)
             corner_done = True
         else:
-            states, specs_list, infos = self.tt_sim_env.run(param_dict)
+            _states, specs_list, _infos = self.tt_sim_env.run(param_dict)
             corner_done = False
 
-        # Sort specs by key for consistent ordering
         spec_arrays = []
         for spec in specs_list:
             sorted_spec = OrderedDict(sorted(spec.items(), key=lambda k: k[0]))
             spec_arrays.append(np.array(list(sorted_spec.values())))
 
-        all_specs = np.array(spec_arrays)  # (num_corners, num_specs)
+        all_specs = np.array(spec_arrays)
 
         if self.corner_sim and len(spec_arrays) > 1:
-            # Pick worst across corners per spec
             reverse_indices = [
                 i for i, sid in enumerate(self.specs_id) if sid.endswith("_max")
             ]
@@ -221,11 +197,17 @@ class MorlNgspiceEnv(gymnasium.Env):
     # ------------------------------------------------------------------
 
     def _init_params(self):
-        """Initialize parameters to center of normalized range."""
-        return np.zeros(self.num_params, dtype=np.float64)
+        """Initialize normalized params by inverse-mapping from YAML init_params."""
+        if self.yaml_init_params is None:
+            return np.zeros(self.num_params, dtype=np.float64)
+        norm = []
+        for i, phys in enumerate(self.yaml_init_params):
+            lo, hi = self.params_val[i]
+            # Invert: phys = lo + (hi - lo) * (norm + 1) / 2
+            norm.append(2.0 * (phys - lo) / (hi - lo) - 1.0)
+        return np.clip(np.array(norm, dtype=np.float64), self.ACT_LOW, self.ACT_HIGH)
 
     def _update_params(self, action):
-        """Apply action as a delta in normalized parameter space."""
         action = np.asarray(action, dtype=np.float64).flatten()
         new = self.cur_params + action
         return np.clip(new, self.ACT_LOW, self.ACT_HIGH)

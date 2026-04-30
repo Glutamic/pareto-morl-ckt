@@ -1,7 +1,5 @@
 """Utility functions for MORL circuit sizing."""
 
-from collections import OrderedDict
-
 import numpy as np
 import yaml
 
@@ -31,38 +29,29 @@ def extract_global_goal(target_specs):
     return np.array(global_goal), specs_id
 
 
-def lookup(spec, goal_spec, style="normd"):
-    """Normalize spec values relative to a goal reference.
+def lookup(spec, reference):
+    """Normalize spec values relative to a reference using tanh.
 
-    Returns signed normalized deltas. Negative = below goal; positive = above goal.
+    Returns signed normalized deltas. Negative = worse than reference;
+    positive = better than reference. Range approximately (-5, 5).
     """
     spec = np.asarray(spec, dtype=np.float32)
-    goal_spec = np.asarray(goal_spec, dtype=np.float32)
+    ref = np.asarray(reference, dtype=np.float32)
     epsilon = 1e-9
-    goal_safe = np.where(goal_spec == 0, epsilon, goal_spec)
+    ref_safe = np.where(ref == 0, epsilon, ref)
 
-    if style == "normd":
-        delta = spec - goal_safe
-        abs_delta = np.abs(delta) + epsilon
-        denom = goal_safe + np.abs(spec) + epsilon
-        norm_spec = np.sign(delta) * np.exp(np.log(abs_delta) - np.log(denom))
-    elif style == "tanh":
-        scale = 10.0
-        norm_spec = np.tanh((spec - goal_safe) / (scale * goal_safe)) / np.tanh(
-            1.0 / scale
-        )
-    else:
-        raise ValueError(f"Unknown lookup style: {style}")
+    scale = 10.0
+    norm_spec = np.tanh((spec - ref_safe) / (scale * ref_safe)) / np.tanh(1.0 / scale)
     return norm_spec
 
 
-def compute_vector_reward(cur_specs, global_goal, specs_id, lookup_style="normd"):
+def compute_vector_reward(cur_specs, global_goal, specs_id):
     """Compute per-dimension vector reward.
 
     Each dimension = lookup(cur_specs[i], global_goal[i]).
     'max' specs (minimization) are sign-flipped so that positive = better.
     """
-    rel = lookup(cur_specs, global_goal, style=lookup_style)
+    rel = lookup(cur_specs, global_goal)
     for i, sid in enumerate(specs_id):
         if sid.endswith("_max"):
             rel[i] *= -1.0
