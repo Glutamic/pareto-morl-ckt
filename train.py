@@ -160,7 +160,7 @@ def main(**kwargs):
         weight_selection_algo="gpi-ls",
         timesteps_per_iter=cfg["timesteps_per_iter"],
         eval_freq=1000,
-        eval_mo_freq=cfg["timesteps_per_iter"] * num_envs,
+        eval_mo_freq=cfg["timesteps_per_iter"],
         eval_env_fn=eval_env_fn,
         num_eval_workers=num_envs,
         num_eval_episodes_for_front=1,
