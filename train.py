@@ -148,6 +148,10 @@ def main(**kwargs):
 
     ref_point = np.full(reward_dim, -50.0)
 
+    eval_env_fn = None
+    if num_envs > 1:
+        eval_env_fn = make_env_fn(yaml_path, corner_sim=cfg["corner_sim"], episode_len=cfg["episode_len"])
+
     agent.train(
         total_timesteps=cfg["total_timesteps"],
         eval_env=eval_env,
@@ -156,7 +160,9 @@ def main(**kwargs):
         weight_selection_algo="gpi-ls",
         timesteps_per_iter=cfg["timesteps_per_iter"],
         eval_freq=1000,
-        eval_mo_freq=cfg["timesteps_per_iter"],
+        eval_mo_freq=cfg["timesteps_per_iter"] * num_envs,
+        eval_env_fn=eval_env_fn,
+        num_eval_workers=num_envs,
         num_eval_episodes_for_front=1,
     )
 
