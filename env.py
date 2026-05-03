@@ -250,3 +250,17 @@ class MorlNgspiceEnv(gymnasium.Env):
             val = np.round(val, decimals=self.prec_params[i])
             physical.append(val)
         return physical
+
+
+def make_env_fn(yaml_path, corner_sim=False, episode_len=30):
+    """Return a callable that creates a fresh MorlNgspiceEnv instance.
+
+    Suitable for passing to MOAsyncVectorEnv(env_fns=[make_env_fn(...), ...]).
+    """
+    def _init():
+        return MorlNgspiceEnv(env_config={
+            "yaml_path": yaml_path,
+            "corner_sim": corner_sim,
+            "episode_len": episode_len,
+        })
+    return _init

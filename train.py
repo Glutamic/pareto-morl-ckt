@@ -19,7 +19,7 @@ from morl_baselines.multi_policy.gpi_pd.gpi_pd_continuous_action import (
     GPIPDContinuousAction,
 )
 
-from env import MorlNgspiceEnv
+from env import MorlNgspiceEnv, make_env_fn
 
 
 def make_env(yaml_path, corner_sim=False, episode_len=30):
@@ -49,6 +49,7 @@ def make_env(yaml_path, corner_sim=False, episode_len=30):
 # --- env ---
 @click.option("--corner_sim/--no-corner_sim", default=False)
 @click.option("--episode_len", default=30, help="Max steps per episode.")
+@click.option("--num_envs", default=1, help="Number of parallel environments (CPU servers: set to core count).")
 # --- GPI-PD ---
 @click.option("--dyna/--no-dyna", default=False)
 @click.option("--use_gpi/--no-use_gpi", default=True)
@@ -79,11 +80,20 @@ def main(**kwargs):
         os.environ["WANDB_MODE"] = wandb_mode
     use_wandb = wandb_mode != "disabled"
 
-    train_env = make_env(
-        yaml_path,
-        corner_sim=cfg["corner_sim"],
-        episode_len=cfg["episode_len"],
-    )
+    num_envs = cfg.get("num_envs", 1)
+
+    if num_envs > 1:
+        from mo_gymnasium.wrappers.vector import MOAsyncVectorEnv
+        env_fns = [make_env_fn(yaml_path, corner_sim=cfg["corner_sim"], episode_len=cfg["episode_len"])
+                   for _ in range(num_envs)]
+        train_env = MOAsyncVectorEnv(env_fns)
+    else:
+        train_env = make_env(
+            yaml_path,
+            corner_sim=cfg["corner_sim"],
+            episode_len=cfg["episode_len"],
+        )
+
     eval_env = make_env(
         yaml_path,
         corner_sim=cfg["corner_sim"],
@@ -91,16 +101,24 @@ def main(**kwargs):
     )
 
     seed = cfg["seed"]
-    train_env.action_space.seed(seed)
+    if num_envs > 1:
+        train_env.single_action_space.seed(seed)
+        ref_env = make_env(yaml_path, corner_sim=cfg["corner_sim"], episode_len=cfg["episode_len"])
+    else:
+        train_env.action_space.seed(seed)
+        ref_env = train_env
     np.random.seed(seed)
 
     logger.info("=== MORL Circuit Sizing ===")
     logger.info("YAML: %s", yaml_path)
     logger.info("Reward dim: %d, Params: %d, Obs dim: %d",
-                reward_dim, train_env.num_params,
-                train_env.observation_space.shape[0])
-    logger.info("Global goal: %s", train_env.global_goal)
-    logger.info("Specs: %s", train_env.specs_id)
+                reward_dim, ref_env.num_params,
+                ref_env.observation_space.shape[0])
+    logger.info("Global goal: %s", ref_env.global_goal)
+    logger.info("Specs: %s", ref_env.specs_id)
+    if num_envs > 1:
+        logger.info("Num envs: %d (parallel)", num_envs)
+        ref_env.close()
     logger.info("Total timesteps: %d, per iter: %d",
                 cfg["total_timesteps"], cfg["timesteps_per_iter"])
     logger.info("Buffer: %d, Batch: %d, Learning starts: %d",
