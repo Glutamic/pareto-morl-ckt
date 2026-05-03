@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from collections import OrderedDict
 from types import SimpleNamespace
 
@@ -101,6 +102,8 @@ class MorlNgspiceEnv(gymnasium.Env):
         self.cur_params = self._init_params()
         self.cur_step = 0
         self.episode_count = 0
+        self._ep_return = np.zeros(self.num_specs, dtype=np.float64)
+        self._ep_start_time = 0.0
 
     # ------------------------------------------------------------------
     # Public interface
@@ -111,6 +114,8 @@ class MorlNgspiceEnv(gymnasium.Env):
         self.cur_step = 0
         self.episode_count += 1
         self.cur_params = self._init_params()
+        self._ep_return = np.zeros(self.num_specs, dtype=np.float64)
+        self._ep_start_time = time.time()
 
         cur_specs_raw, _ = self._simulate(self.cur_params)
         vector_reward = compute_vector_reward(
@@ -136,6 +141,7 @@ class MorlNgspiceEnv(gymnasium.Env):
         )
 
         self.cur_step += 1
+        self._ep_return += vector_reward
 
         fail_dims = vector_reward < self.REWARD_FAIL_THRESHOLD
         terminated = bool(np.any(fail_dims))
@@ -161,6 +167,15 @@ class MorlNgspiceEnv(gymnasium.Env):
             "params": self._translate_params(self.cur_params),
             "corner_sim_done": corner_done,
         }
+
+        if terminated or truncated:
+            info["episode"] = {
+                "r": self._ep_return.copy(),
+                "dr": self._ep_return.copy(),
+                "l": self.cur_step,
+                "t": round(time.time() - self._ep_start_time, 3),
+            }
+
         return obs, vector_reward, terminated, truncated, info
 
     # ------------------------------------------------------------------
