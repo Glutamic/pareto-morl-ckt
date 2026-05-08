@@ -6,6 +6,7 @@ Uses GPI-PD (Continuous Action) from morl-baselines with a custom ngspice env.
 import logging
 import os
 import sys
+from pathlib import Path
 
 import click
 import numpy as np
@@ -35,6 +36,8 @@ def make_env(yaml_path, corner_sim=False, episode_len=30):
 @click.command()
 # --- circuit ---
 @click.option("--yaml", "yaml_path", required=True, help="Path to circuit YAML config.")
+@click.option("--config", "config_path", default=None,
+              help="Path to experiment YAML file. All parameters read from this file.")
 @click.option("--env_name", default="COMP", help="Circuit name for logging.")
 # --- training ---
 @click.option("--total_timesteps", default=100000, help="Total training timesteps.")
@@ -62,6 +65,16 @@ def make_env(yaml_path, corner_sim=False, episode_len=30):
 @click.option("--verbose/--quiet", default=False, help="Show DEBUG-level messages on console.")
 def main(**kwargs):
     cfg = {k: v for k, v in kwargs.items()}
+
+    # Load experiment YAML config if provided
+    config_path = cfg.pop("config_path", None)
+    if config_path:
+        import yaml as _yaml
+        with open(config_path) as f:
+            file_cfg = _yaml.safe_load(f)
+        for k, v in file_cfg.items():
+            cfg[k] = v
+
     yaml_path = cfg["yaml_path"]
 
     # --- logging setup ---
@@ -165,6 +178,16 @@ def main(**kwargs):
         num_eval_workers=num_envs,
         num_eval_episodes_for_front=1,
     )
+
+    # Auto-generate HTML reports after training
+    try:
+        import subprocess
+        report_script = Path(__file__).parent / "scripts" / "generate_report.py"
+        index_script = Path(__file__).parent / "scripts" / "generate_index.py"
+        subprocess.run([sys.executable, str(report_script), str(run_dir)], check=False)
+        subprocess.run([sys.executable, str(index_script)], check=False)
+    except Exception:
+        pass
 
 
 def _get_reward_dim(yaml_path):
