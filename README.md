@@ -10,9 +10,9 @@ morl-ckt-sizing/
 ├── env.py                # MorlNgspiceEnv (gymnasium.Env, vector rewards)
 ├── utils.py              # YAML loading, global goal, spec normalization
 ├── logging_setup.py      # JSONL logging, run directory management
-├── scripts/              # Shell launchers & report generation
+├── experiments/          # YAML experiment configs (--config)
+├── scripts/              # Report generation (generate_report.py, generate_index.py)
 ├── tests/                # Env interface tests (test_env.py)
-├── experiments/          # Experiment YAML configs
 ├── logs/                 # Training output (auto-generated)
 └── eval_engines/
     ├── ngspice/
@@ -33,16 +33,14 @@ conda activate morl
 # Quick test
 python tests/test_env.py
 
-# Train comparator (1k steps, no wandb)
-python train.py \
-    --yaml eval_engines/ngspice/ngspice_inputs/yaml_files/comparator_gf180.yaml \
-    --env_name COMP \
-    --total_timesteps 1000 --timesteps_per_iter 500 \
-    --buffer_size 5000 --learning_starts 100 --batch_size 64 \
-    --wandb_mode disabled
+# Quick training test (1k steps, no wandb)
+python train.py --config experiments/comp_quick_test.yaml
 
-# Train with experiment config
+# Full training
 python train.py --config experiments/comp_tt_100k.yaml
+
+# Override params for ad-hoc changes
+python train.py --config experiments/comp_tt_100k.yaml --total_timesteps 5000 --num_envs 8 --wandb_mode disabled
 ```
 
 ## Available circuits

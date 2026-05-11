@@ -34,46 +34,34 @@ def make_env(yaml_path, corner_sim=False, episode_len=30):
 
 
 @click.command()
-# --- circuit ---
-@click.option("--yaml", "yaml_path", required=True, help="Path to circuit YAML config.")
-@click.option("--config", "config_path", default=None,
-              help="Path to experiment YAML file. All parameters read from this file.")
-@click.option("--env_name", default="COMP", help="Circuit name for logging.")
-# --- training ---
-@click.option("--total_timesteps", default=100000, help="Total training timesteps.")
-@click.option("--timesteps_per_iter", default=10000, help="Timesteps per GPI-LS iteration.")
-@click.option("--seed", default=42, help="Random seed.")
-# --- rl ---
-@click.option("--lr", default=3e-4, help="Learning rate.")
-@click.option("--gamma", default=0.99, help="Discount factor.")
-@click.option("--batch_size", default=256, help="Batch size.")
-@click.option("--buffer_size", default=400000, help="Replay buffer size.")
-@click.option("--learning_starts", default=1000, help="Random exploration steps before training.")
-# --- env ---
-@click.option("--corner_sim/--no-corner_sim", default=False)
-@click.option("--episode_len", default=30, help="Max steps per episode.")
-@click.option("--num_envs", default=1, help="Number of parallel environments (CPU servers: set to core count).")
-# --- GPI-PD ---
-@click.option("--dyna/--no-dyna", default=False)
-@click.option("--use_gpi/--no-use_gpi", default=True)
-# --- logging ---
-@click.option("--wandb_project", default="MORL-Circuit-Sizing")
-@click.option("--wandb_entity", default=None)
-@click.option("--run_name", default=None)
-@click.option("--wandb_mode", default="online", type=click.Choice(["online", "offline", "disabled"]))
-@click.option("--log_dir", default="./logs", help="Base directory for log output.")
+@click.option("--config", "config_path", required=True,
+              help="Path to experiment YAML config.")
+@click.option("--total_timesteps", default=None, type=int,
+              help="Override total training timesteps.")
+@click.option("--seed", default=None, type=int,
+              help="Override random seed.")
+@click.option("--wandb_mode", default=None,
+              type=click.Choice(["online", "offline", "disabled"]),
+              help="Override wandb mode.")
+@click.option("--num_envs", default=None, type=int,
+              help="Override number of parallel environments.")
 @click.option("--verbose/--quiet", default=False, help="Show DEBUG-level messages on console.")
-def main(**kwargs):
-    cfg = {k: v for k, v in kwargs.items()}
+def main(config_path, total_timesteps, seed, wandb_mode, num_envs, verbose):
+    import yaml as _yaml
+    with open(config_path) as f:
+        cfg = _yaml.safe_load(f)
 
-    # Load experiment YAML config if provided
-    config_path = cfg.pop("config_path", None)
-    if config_path:
-        import yaml as _yaml
-        with open(config_path) as f:
-            file_cfg = _yaml.safe_load(f)
-        for k, v in file_cfg.items():
+    # CLI overrides (only apply if explicitly passed)
+    overrides = {
+        "total_timesteps": total_timesteps,
+        "seed": seed,
+        "wandb_mode": wandb_mode,
+        "num_envs": num_envs,
+    }
+    for k, v in overrides.items():
+        if v is not None:
             cfg[k] = v
+    cfg["verbose"] = verbose
 
     yaml_path = cfg["yaml_path"]
 
@@ -153,7 +141,7 @@ def main(**kwargs):
         dyna=cfg["dyna"],
         use_gpi=cfg["use_gpi"],
         project_name=cfg["wandb_project"],
-        wandb_entity=cfg["wandb_entity"],
+        wandb_entity=cfg.get("wandb_entity"),
         experiment_name=experiment_name,
         log=use_wandb,
         seed=seed,
