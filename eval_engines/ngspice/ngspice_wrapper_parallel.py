@@ -7,6 +7,8 @@ import random
 import yaml
 import shutil
 
+_INCLUDE_RE = re.compile(r'^(\.include|\.lib)\s+"?([^\s"]+)"?(.*)$')
+
 class NgSpiceWrapper(object):
 
     BASE_TMP_DIR = os.path.abspath("./tmp/ckt_da")
@@ -16,9 +18,9 @@ class NgSpiceWrapper(object):
             self.root_dir = NgSpiceWrapper.BASE_TMP_DIR
         else:
             self.root_dir = root_dir
-        
+
         os.makedirs(self.root_dir, exist_ok=True)
-        
+
         self.base_design_names = []
         self.gen_dirs = []
         self.tmp_lines = []
@@ -26,20 +28,39 @@ class NgSpiceWrapper(object):
             with open(yaml_path, 'r') as f:
                 yaml_data = yaml.full_load(f)
             design_netlists = yaml_data['dsn_netlist']
-        
+
         self.num_process = len(design_netlists) if num_process == None else num_process
-        
+
         for design_netlist in design_netlists:
-            design_netlist = path+'/'+design_netlist
-            _, dsg_netlist_fname = os.path.split(design_netlist)
+            full_netlist_path = os.path.join(path, design_netlist)
+            netlist_dir = os.path.dirname(os.path.abspath(full_netlist_path))
+            _, dsg_netlist_fname = os.path.split(full_netlist_path)
             base_design_name = os.path.splitext(dsg_netlist_fname)[0]
             self.base_design_names.append(base_design_name)
             gen_dir = os.path.join(self.root_dir, "designs_" + base_design_name)
             self.gen_dirs.append(gen_dir)
             os.makedirs(gen_dir, exist_ok=True)
-            raw_file = open(design_netlist, 'r')
-            self.tmp_lines.append(raw_file.readlines())
+            raw_file = open(full_netlist_path, 'r')
+            lines = raw_file.readlines()
             raw_file.close()
+            self.tmp_lines.append(self._resolve_includes(lines, netlist_dir))
+
+    @staticmethod
+    def _resolve_includes(lines, netlist_dir):
+        resolved = []
+        for line in lines:
+            m = _INCLUDE_RE.match(line.strip())
+            if m:
+                p = m.group(2)
+                if not os.path.isabs(p):
+                    abs_p = os.path.normpath(os.path.join(netlist_dir, p))
+                    if m.group(1) == '.lib':
+                        resolved.append(f'.lib "{abs_p}"{m.group(3)}\n')
+                    else:
+                        resolved.append(f'.include "{abs_p}"{m.group(3)}\n')
+                    continue
+            resolved.append(line)
+        return resolved
 
     def get_design_name(self, state, base_design_name):
         fname = base_design_name

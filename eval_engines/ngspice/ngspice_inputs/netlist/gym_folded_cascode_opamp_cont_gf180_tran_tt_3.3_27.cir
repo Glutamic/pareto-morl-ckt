@@ -1,8 +1,8 @@
 folded_cascode_amp test
 
-.include "/Users/glutami/Workspace/agent-ds-code-test/morl-ckt-sizing/eval_engines/pdk/gf180/ngspice/design.ngspice"
+.include "../../../pdk/gf180/ngspice/design.ngspice"
 
-.lib "/Users/glutami/Workspace/agent-ds-code-test/morl-ckt-sizing/eval_engines/pdk/gf180/ngspice/sm141064.ngspice" typical
+.lib "../../../pdk/gf180/ngspice/sm141064.ngspice" typical
 
 
 .param wp11=1.0e-6 lp11=300.0e-9 mp11=1

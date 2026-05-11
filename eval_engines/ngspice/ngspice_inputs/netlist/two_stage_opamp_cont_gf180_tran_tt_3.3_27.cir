@@ -1,8 +1,8 @@
 * Two_stage_amp test with subcircuit structure
 
-.include "/Users/glutami/Workspace/agent-ds-code-test/morl-ckt-sizing/eval_engines/pdk/gf180/ngspice/design.ngspice"
+.include "../../../pdk/gf180/ngspice/design.ngspice"
 
-.lib "/Users/glutami/Workspace/agent-ds-code-test/morl-ckt-sizing/eval_engines/pdk/gf180/ngspice/sm141064.ngspice" typical
+.lib "../../../pdk/gf180/ngspice/sm141064.ngspice" typical
 
 .param wp1=100.0u  lp1=300n mp1=1
 .param wn1=8.05u  ln1=300n mn1=1
