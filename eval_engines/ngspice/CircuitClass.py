@@ -321,11 +321,13 @@ class CircuitClass(NgSpiceWrapper):
     def find_inoise(self, output_path, noise_freq):
         noise_fname = os.path.join(output_path, "tran.csv")
         if not os.path.isfile(noise_fname):
-            inoise = None
-        else:
-            noise_raw_outputs = np.genfromtxt(noise_fname, skip_header=0)
-            delay = noise_raw_outputs[1] / (1e-12)
-            power = -1 * noise_raw_outputs[3] / (1e-12)
+            raise RuntimeError(
+                "tran.csv not found at {}. ngspice simulation likely failed "
+                "(check .log file in same directory for ngspice errors).".format(noise_fname)
+            )
+        noise_raw_outputs = np.genfromtxt(noise_fname, skip_header=0)
+        delay = noise_raw_outputs[1] / (1e-12)
+        power = -1 * noise_raw_outputs[3] / (1e-12)
         return delay, power
     
     

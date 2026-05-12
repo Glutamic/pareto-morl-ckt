@@ -194,30 +194,40 @@ class MorlNgspiceEnv(gymnasium.Env):
         physical = self._translate_params(norm_params)
         param_dict = OrderedDict(zip(self.params_id, physical))
 
-        if self.corner_sim:
-            _states, specs_list, _infos = self.full_sim_env.run(param_dict)
-            corner_done = True
-        else:
-            _states, specs_list, _infos = self.tt_sim_env.run(param_dict)
+        try:
+            if self.corner_sim:
+                _states, specs_list, _infos = self.full_sim_env.run(param_dict)
+                corner_done = True
+            else:
+                _states, specs_list, _infos = self.tt_sim_env.run(param_dict)
+                corner_done = False
+
+            spec_arrays = []
+            for spec in specs_list:
+                sorted_spec = OrderedDict(sorted(spec.items(), key=lambda k: k[0]))
+                spec_arrays.append(np.array(list(sorted_spec.values())))
+
+            all_specs = np.array(spec_arrays)
+
+            if self.corner_sim and len(spec_arrays) > 1:
+                reverse_indices = [
+                    i for i, sid in enumerate(self.specs_id) if sid.endswith("_max")
+                ]
+                worst = all_specs.copy()
+                worst[:, reverse_indices] *= -1.0
+                worst_idx = np.argmin(worst, axis=0)
+                worst_specs = all_specs[worst_idx, np.arange(self.num_specs)]
+            else:
+                worst_specs = all_specs[0]
+
+        except RuntimeError as e:
+            logger.warning(
+                "[ep %d step %d] Simulation failed: %s. Returning fail-threshold specs.",
+                self.episode_count, self.cur_step, str(e).split('\n')[0],
+                exc_info=True,
+            )
+            worst_specs = np.full(self.num_specs, 1e9, dtype=np.float64)
             corner_done = False
-
-        spec_arrays = []
-        for spec in specs_list:
-            sorted_spec = OrderedDict(sorted(spec.items(), key=lambda k: k[0]))
-            spec_arrays.append(np.array(list(sorted_spec.values())))
-
-        all_specs = np.array(spec_arrays)
-
-        if self.corner_sim and len(spec_arrays) > 1:
-            reverse_indices = [
-                i for i, sid in enumerate(self.specs_id) if sid.endswith("_max")
-            ]
-            worst = all_specs.copy()
-            worst[:, reverse_indices] *= -1.0
-            worst_idx = np.argmin(worst, axis=0)
-            worst_specs = all_specs[worst_idx, np.arange(self.num_specs)]
-        else:
-            worst_specs = all_specs[0]
 
         return worst_specs, corner_done
 

@@ -107,12 +107,24 @@ class NgSpiceWrapper(object):
         return design_folder, fpath
 
     def simulate(self, fpath):
-        info = 0 # this means no error occurred
-        command = "ngspice -b %s >/dev/null 2>&1" %fpath
+        info = 0  # this means no error occurred
+        root, _ext = os.path.splitext(fpath)
+        log_path = root + '.log'
+        command = "ngspice -b {} >{} 2>&1".format(fpath, log_path)
         exit_code = os.system(command)
-        if (exit_code % 256):
-            raise RuntimeError('program {} failed!'.format(command))
-            info = 1 # this means an error has occurred
+        if exit_code != 0:
+            tail = ""
+            try:
+                with open(log_path, 'r') as f:
+                    lines = f.readlines()
+                    tail = "".join(lines[-20:])
+            except (FileNotFoundError, PermissionError, OSError):
+                pass
+            raise RuntimeError(
+                'ngspice failed with status {} for {}\nLast lines:\n{}'.format(
+                    exit_code, fpath, tail or '(no output captured)'
+                )
+            )
         return info
 
     def create_design_and_simulate(self, state, base_design_name, gen_dir, tmp_lines, verbose=False):
