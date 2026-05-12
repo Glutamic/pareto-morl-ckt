@@ -113,6 +113,8 @@ class NgSpiceWrapper(object):
         command = "ngspice -b {} >{} 2>&1".format(fpath, log_path)
         exit_code = os.system(command)
         if exit_code != 0:
+            if self._log_has_results(log_path):
+                return info
             tail = ""
             try:
                 with open(log_path, 'r') as f:
@@ -126,6 +128,17 @@ class NgSpiceWrapper(object):
                 )
             )
         return info
+
+    @staticmethod
+    def _log_has_results(log_path):
+        try:
+            with open(log_path, 'r') as f:
+                content = f.read()
+        except (FileNotFoundError, PermissionError, OSError):
+            return False
+        has_meas = bool(re.search(r'^\S+\s*=\s*[-.\de+]+', content, re.MULTILINE))
+        no_error = not re.search(r'(?i)(error|fatal|singular)', content)
+        return has_meas and no_error
 
     def create_design_and_simulate(self, state, base_design_name, gen_dir, tmp_lines, verbose=False):
         dsn_name = self.get_design_name(state, base_design_name)
