@@ -260,6 +260,7 @@ def train_mosac(cfg, yaml_path, run_dir, reward_dim):
         policy_freq=cfg.get("policy_freq", 2),
         log=False,
         seed=seed,
+        conditioned_on_weight=True,
     )
 
     # ---- eval setup ----
